@@ -1,6 +1,7 @@
 /* eslint-disable jest/prefer-todo */
 import { ethers } from 'ethers';
 import axios from 'axios';
+import contracts from '@orcaprotocol/contracts';
 import * as sdk from '../src';
 import * as utils from '../src/lib/utils';
 import * as fetchers from '../src/fetchers';
@@ -15,6 +16,8 @@ import {
   userAddress2,
   constructGqlGetUsers,
 } from './fixtures';
+
+// Tests for any token, or token-like functionality (this includes admin transfers)
 
 let provider;
 
@@ -120,10 +123,6 @@ describe('member actions', () => {
     const mockSigner = {
       getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
     };
-    // const mockTransfer = jest.fn();
-    // jest.spyOn(utils, 'getContract').mockReturnValueOnce({
-    //   safeTransferFrom: mockTransfer,
-    // });
     const pod = await sdk.getPod(orcanautAddress);
   
     // Attempting to transfer membership to already existing member.
@@ -167,7 +166,7 @@ describe('member actions', () => {
     await expect(pod.proposeMintMember(orcanautPod.members[0], mockSigner)).rejects.toThrow('is already in this pod');
   });
   
-  test('As a pod member, I should be able to create a proposal to burn a member', async () => {
+  test('As a pod member, I should not be able to burn a member that is not in the pod', async () => {
     mockGetPodFetchersByAddress();
     jest.spyOn(utils, 'getContract').mockReturnValueOnce({
       address: memberTokenAddress,
@@ -647,119 +646,6 @@ describe('proposeTransferMembershipFromSubPod', () => {
   });
 });
 
-
-describe('proposeTransferMembershipFromSubPod', () => {
-  function setupAdminAndSubPod() {
-    jest.spyOn(fetchers, 'getPodFetchersByAddressOrEns').mockResolvedValueOnce({
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      Controller: { podAdmin: jest.fn().mockResolvedValue(orcanautPod.admin) },
-      safe: orcanautAddress,
-      podId: orcanautPod.id,
-      Name: { name: orcanautPod.ensName },
-    }).mockResolvedValueOnce({
-      // Mock artNaut admin to be orcanaut pod.
-      Controller: { podAdmin: jest.fn().mockResolvedValue(orcanautPod.safe) },
-      safe: artNautPod.safe,
-      podId: artNautPod.id,
-      Name: { name: artNautPod.ensName },
-    });
-    jest.spyOn(utils, 'getContract').mockReturnValueOnce({
-      address: memberTokenAddress,
-    });
-    jest.spyOn(axios, 'post')
-      .mockResolvedValueOnce(constructGqlGetUsers(orcanautPod.members))
-      .mockResolvedValueOnce(constructGqlGetUsers(artNautPod.members));
-  }
-
-  test('As a member of a sub pod, I should be able to create a proposal on the sub pod to transfer membership to another address', async () => {
-    setupAdminAndSubPod();
-    const mockSigner = {
-      // This should be a member of admin pod.
-      getAddress: jest.fn().mockResolvedValueOnce(artNautPod.members[0]),
-    };
-    const createSafeTx = jest.spyOn(txService, 'createSafeTransaction').mockReturnValueOnce({});
-  
-    const adminPod = await sdk.getPod(orcanautAddress);
-    // subPod is member of adminPod
-    const subPod = await sdk.getPod('art-naut.pod.xyz');
-  
-    // Creates a proposal on the admin pod to mint a new member to subPod using admin privileges.
-    await adminPod.proposeTransferMembershipFromSubPod(subPod, userAddress2, mockSigner);
-    expect(createSafeTx).toHaveBeenCalledWith(
-      {
-        sender: subPod.safe,
-        safe: adminPod.safe,
-        to: memberTokenAddress,
-        data: '0xf242432a00000000000000000000000025f55d2e577a937433686a01439e5ffdffe622180000000000000000000000001cc62ce7cb56ed99513823064295761f9b7c856e0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000',
-      },
-      mockSigner,
-    );
-  });
-
-  test("Should throw if the provided pod is not a subpod of the Pod you're trying to mint to", async () => {
-    jest.spyOn(fetchers, 'getPodFetchersByAddressOrEns').mockResolvedValueOnce({
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      Controller: { podAdmin: jest.fn().mockResolvedValue(orcaCorePod.admin) },
-      safe: orcaCorePod.safe,
-      podId: orcaCorePod.id,
-      Name: { name: orcaCorePod.ensName },
-    }).mockResolvedValueOnce({
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      Controller: { podAdmin: jest.fn().mockResolvedValue(artNautPod.admin) },
-      safe: artNautPod.safe,
-      podId: artNautPod.id,
-      Name: { name: artNautPod.ensName },
-    });
-    jest.spyOn(utils, 'getContract').mockReturnValueOnce({
-      address: memberTokenAddress,
-    });
-
-    const mockSigner = {
-      // This is a member of orca core.
-      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
-    };
-  
-    const adminPod = await sdk.getPod(orcanautAddress);
-    // subPod is member of adminPod
-    const subPod = await sdk.getPod('art-naut.pod.xyz');
-  
-    // Recipient address doesn't matter.
-    await expect(adminPod.proposeTransferMembershipFromSubPod(subPod, ethers.constants.AddressZero, mockSigner)).rejects.toThrow('must be a subpod of this pod to make proposals');
-  });
-
-  test('Should throw if attempting to transfer membership to existing member', async () => {
-    setupAdminAndSubPod();
-    const mockSigner = {
-      // Not a member.
-      getAddress: jest.fn().mockResolvedValueOnce(artNautPod.members[0]),
-    };
-  
-    const adminPod = await sdk.getPod(orcanautAddress);
-    // subPod is member of adminPod
-    const subPod = await sdk.getPod('art-naut.pod.xyz');
-  
-    await expect(adminPod.proposeTransferMembershipFromSubPod(subPod, artNautPod.members[0], mockSigner)).rejects.toThrow('is already in this pod');
-  });
-
-  test('Should throw if the signer of proposeTransferMembershipFromSubPod is not a member of the external pod', async () => {
-    setupAdminAndSubPod();
-    const mockSigner = {
-      // Not a member.
-      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
-    };
-  
-    const adminPod = await sdk.getPod(orcanautAddress);
-    // subPod is member of adminPod
-    const subPod = await sdk.getPod('art-naut.pod.xyz');
-  
-    await expect(adminPod.proposeTransferMembershipFromSubPod(subPod, userAddress2, mockSigner)).rejects.toThrow('was not a member of sub pod');
-  });
-});
-
-
 describe('proposeTransferAdminFromAdminPod', () => {
   function setupAdminAndSubPod() {
     jest.spyOn(fetchers, 'getPodFetchersByAddressOrEns').mockResolvedValueOnce({
@@ -869,4 +755,95 @@ describe('proposeTransferAdminFromAdminPod', () => {
   
     await expect(subPod.proposeTransferAdminFromAdminPod(adminPod, userAddress2, mockSigner)).rejects.toThrow('was not a member of admin pod');
   });
+});
+
+describe('proposeAddAdmin', () => {
+  test('As a pod member, I should be able to create a proposal to add an admin', async () => {
+    mockGetPodFetchersByAddress({ overrideAdmin: ethers.constants.AddressZero });
+    jest.spyOn(utils, 'getContract').mockReturnValueOnce({
+      address: memberTokenAddress,
+    });
+    const createSafeTx = jest.spyOn(txService, 'createSafeTransaction').mockReturnValueOnce({});
+    const mockSigner = {
+      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
+    };
+  
+    const pod = await sdk.getPod(orcanautAddress);
+    await pod.proposeAddAdmin(userAddress2, mockSigner);
+    expect(createSafeTx).toHaveBeenCalledWith(
+      {
+        sender: userAddress2,
+        safe: pod.safe,
+        to: pod.controller,
+        data: '0x346e5c4800000000000000000000000000000000000000000000000000000000000000010000000000000000000000001cc62ce7cb56ed99513823064295761f9b7c856e',
+      },
+      mockSigner,
+    );
+  });
+
+  test('Should not be able to create a proposal to add admin if there is already an admin', async () => {
+    mockGetPodFetchersByAddress();
+    jest.spyOn(utils, 'getContract').mockReturnValueOnce({
+      address: memberTokenAddress,
+    });
+    const createSafeTx = jest.spyOn(txService, 'createSafeTransaction').mockReturnValueOnce({});
+    const mockSigner = {
+      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
+    };
+  
+    const pod = await sdk.getPod(orcanautAddress);
+    await expect(pod.proposeAddAdmin(userAddress2, mockSigner)).rejects.toThrow('Pod already has admin');
+  });
+});
+
+describe('Pod migration', () => {
+  test('Should be able to migrate pod controller', async () => {
+    mockGetPodFetchersByAddress();
+    const mockSigner = {
+      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
+    };
+    const mockMigrate = jest.fn();
+    jest.spyOn(contracts, 'getDeployment').mockReturnValue({
+      address: '0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd',
+    });
+    jest.spyOn(contracts, 'getControllerByAddress').mockReturnValue({
+      address: '0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd',
+      migratePodController: mockMigrate,
+    });
+    jest.spyOn(utils, 'getPreviousModule').mockResolvedValueOnce('0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd');
+
+    const pod = await sdk.getPod(orcanautAddress);
+
+    await pod.migratePodToLatest(mockSigner);
+    expect(mockMigrate).toHaveBeenCalledWith(
+      pod.id, '0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd', '0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd'
+    );
+  });
+
+  test('Should be able to propose a pod migration', async () => {
+    mockGetPodFetchersByAddress();
+    const mockSigner = {
+      getAddress: jest.fn().mockResolvedValueOnce(userAddress2),
+    };
+    const mockMigrate = jest.fn();
+    jest.spyOn(contracts, 'getDeployment').mockReturnValue({
+      address: '0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd',
+    });
+    jest.spyOn(utils, 'getPreviousModule').mockResolvedValueOnce('0x242e1E6cF6C30d36988D8019d0fE2e187325CCEd');
+    const createSafeTx = jest.spyOn(txService, 'createSafeTransaction').mockReturnValueOnce({});
+
+    const pod = await sdk.getPod(orcanautAddress);
+
+    await pod.proposeMigratePodToLatest(mockSigner);
+
+    expect(createSafeTx).toHaveBeenCalledWith(
+      {
+        sender: userAddress2,
+        safe: pod.safe,
+        to: pod.controller,
+        data: '0xe1fc2cc10000000000000000000000000000000000000000000000000000000000000001000000000000000000000000242e1e6cf6c30d36988d8019d0fe2e187325cced000000000000000000000000242e1e6cf6c30d36988d8019d0fe2e187325cced',
+      },
+      mockSigner,
+    );
+  })
 });

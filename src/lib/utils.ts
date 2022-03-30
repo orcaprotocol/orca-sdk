@@ -2,12 +2,15 @@ import { ethers } from 'ethers';
 import { getDeployment } from '@orcaprotocol/contracts';
 // These fetch the rinkeby deployments, but we just need the ABIs so it's irrelevant where we're fetching from.
 import MemberToken from '@orcaprotocol/contracts/deployments/rinkeby/MemberToken.json';
+import { getSafeSingletonDeployment } from '@gnosis.pm/safe-deployments';
 import { config } from '../config';
 
 // Mapping contractNames to JSONs
 const contractJsons = {
   MemberToken,
 };
+
+const GnosisSafe = getSafeSingletonDeployment({ version: '1.3.0' });
 
 /**
  * Returns ethers contract based on name
@@ -70,4 +73,32 @@ export async function signMessage(contractTransactionHash: string, signer: ether
   const signedMessage = await signer.signMessage(ethers.utils.arrayify(contractTransactionHash));
   // Reference: https://github.com/gnosis/safe-contracts/blob/main/src/utils/execution.ts#L102
   return signedMessage.replace(/1b$/, '1f').replace(/1c$/, '20');
+}
+
+/**
+ * Gets the previous Controller module from the safe contract.
+ * @param safe - Safe address
+ * @param oldController - Old controller address
+ * @param newController - New controller address
+ * @param signer
+ * @returns
+ */
+export async function getPreviousModule(
+  safe: string,
+  oldController: string,
+  newController: string,
+  signer: ethers.Signer,
+): Promise<string> {
+  const safeContract = new ethers.Contract(safe, GnosisSafe.abi, signer);
+  const AddressOne = '0x0000000000000000000000000000000000000001';
+  // TODO: figure out a better way to traverse the safes
+  const safeModules = await safeContract.getModulesPaginated(AddressOne, 10);
+
+  if (safeModules.includes(newController)) throw new Error('Pod is already on latest version');
+
+  const oldIndex = safeModules.indexOf(oldController);
+  const previousModule =
+    safeModules.length === 1 || oldIndex === 0 ? newController : safeModules[oldIndex - 1];
+
+  return previousModule;
 }

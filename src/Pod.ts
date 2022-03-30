@@ -1,10 +1,16 @@
 import { ethers } from 'ethers';
 import axios from 'axios';
 import ENS from '@ensdomains/ensjs';
-import { getControllerByAddress } from '@orcaprotocol/contracts';
+import { getControllerByAddress, getDeployment } from '@orcaprotocol/contracts';
 import { config } from './config';
 import { getPodFetchersByAddressOrEns, getPodFetchersById } from './fetchers';
-import { getContract, handleEthersError, encodeFunctionData, checkAddress } from './lib/utils';
+import {
+  getContract,
+  handleEthersError,
+  encodeFunctionData,
+  checkAddress,
+  getPreviousModule,
+} from './lib/utils';
 import { createSafeTransaction } from './lib/services/transaction-service';
 
 export default class Pod {
@@ -531,6 +537,96 @@ export default class Pod {
           sender: adminPod.safe,
           safe: this.safe,
           to: this.controller,
+          data,
+        },
+        signer,
+      );
+    } catch (err) {
+      throw new Error(err);
+    }
+  };
+
+  /**
+   * Adds newAdminAddress as the admin of this pod, if this pod does not currently have an admin.
+   * @param newAdminAddress
+   * @param signer
+   */
+  proposeAddAdmin = async (newAdminAddress: string, signer: ethers.Signer) => {
+    const checkedAddress = checkAddress(newAdminAddress);
+    const signerAddress = await signer.getAddress();
+    if (this.admin) throw new Error('Pod already has admin');
+
+    const { abi: controllerAbi } = getControllerByAddress(this.controller, config.network);
+    const data = new ethers.utils.Interface(controllerAbi).encodeFunctionData('updatePodAdmin', [
+      this.id,
+      checkedAddress,
+    ]);
+
+    try {
+      // Create a proposal from the signer address
+      await createSafeTransaction(
+        {
+          sender: signerAddress,
+          safe: this.safe,
+          to: this.controller,
+          data,
+        },
+        signer,
+      );
+    } catch (err) {
+      throw new Error(err);
+    }
+  };
+
+  migratePodToLatest = async (signer: ethers.Signer) => {
+    // forcing to newest controller
+    const newController = getDeployment('ControllerLatest', config.network);
+    const oldController = getControllerByAddress(this.controller, config.network);
+
+    const previousModule = await getPreviousModule(
+      this.safe,
+      oldController.address,
+      newController.address,
+      signer,
+    );
+
+    // use prev controller
+    try {
+      const res = await oldController.migratePodController(
+        this.id,
+        newController.address,
+        previousModule,
+      );
+      return res;
+    } catch (err) {
+      return handleEthersError(err);
+    }
+  };
+
+  proposeMigratePodToLatest = async (signer: ethers.Signer) => {
+    // forcing to newest controller
+    const newController = getDeployment('ControllerLatest', process.env.NEXT_PUBLIC_NETWORK);
+    const oldController = getControllerByAddress(this.controller, config.network);
+
+    const previousModule = await getPreviousModule(
+      this.safe,
+      oldController.address,
+      newController.address,
+      signer,
+    );
+
+    // use prev controller
+    const data = new ethers.utils.Interface(oldController.abi).encodeFunctionData(
+      'migratePodController',
+      [this.id, newController.address, previousModule],
+    );
+
+    try {
+      await createSafeTransaction(
+        {
+          sender: await signer.getAddress(),
+          safe: this.safe,
+          to: oldController.address,
           data,
         },
         signer,
