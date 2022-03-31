@@ -88,6 +88,8 @@ export default class Pod {
 
   memberPods?: Pod[];
 
+  /* Member fetch functions */
+
   /**
    * Returns of list of all member addresses.
    * @returns string[]
@@ -158,6 +160,8 @@ export default class Pod {
     return this.memberPods;
   };
 
+  /* Member check functions */
+
   isMember = async (address: string): Promise<boolean> => {
     checkAddress(address);
     if (!this.members) await this.getMembers();
@@ -187,6 +191,8 @@ export default class Pod {
     return results.includes(true);
   };
 
+  /* Mint functions */
+
   /**
    * Checks if the user is the admin of the pod, and then mints a member.
    */
@@ -197,72 +203,6 @@ export default class Pod {
     checkAddress(newMember);
     try {
       return getContract('MemberToken', signer).mint(newMember, this.id, ethers.constants.HashZero);
-    } catch (err) {
-      return handleEthersError(err);
-    }
-  };
-
-  /**
-   * Checks if the user is the admin of the pod, and then burns a member.
-   */
-  burnMember = async (
-    memberToBurn: string,
-    signer: ethers.Signer,
-  ): Promise<ethers.providers.TransactionResponse> => {
-    checkAddress(memberToBurn);
-    try {
-      return getContract('MemberToken', signer).burn(memberToBurn, this.id);
-    } catch (err) {
-      return handleEthersError(err);
-    }
-  };
-
-  /**
-   * Transfers a membership from the signer's account to the memberToTransferTo.
-   * @param addressToTransferTo
-   * @param signer
-   * @returns
-   */
-  transferMembership = async (addressToTransferTo: string, signer: ethers.Signer) => {
-    const checkedAddress = checkAddress(addressToTransferTo);
-    if (await this.isMember(checkedAddress)) {
-      throw new Error(`Address ${checkedAddress} is already a member of this pod`);
-    }
-
-    const signerAddress = await signer.getAddress();
-    if (!(await this.isMember(signerAddress))) {
-      throw new Error(`Signer ${signerAddress} is not a member of this pod`);
-    }
-
-    try {
-      return getContract('MemberToken', signer).safeTransferFrom(
-        signerAddress,
-        checkedAddress,
-        this.id,
-        1,
-        ethers.constants.HashZero,
-      );
-    } catch (err) {
-      return handleEthersError(err);
-    }
-  };
-
-  /**
-   * Transfers admin role from signer's account to addressToTransferTo
-   * @param addressToTransferTo
-   * @param signer
-   * @returns
-   */
-  transferAdmin = async (addressToTransferTo: string, signer: ethers.Signer) => {
-    const checkedAddress = checkAddress(addressToTransferTo);
-    const signerAddress = await signer.getAddress();
-    if (!this.isAdmin(signerAddress)) throw new Error('Signer was not the admin of this pod');
-
-    const { abi: controllerAbi } = getControllerByAddress(this.controller, config.network);
-    const Controller = new ethers.Contract(this.controller, controllerAbi, signer);
-
-    try {
-      return Controller.updatePodAdmin(this.id, checkedAddress);
     } catch (err) {
       return handleEthersError(err);
     }
@@ -358,6 +298,23 @@ export default class Pod {
     }
   };
 
+  /* Burn functions */
+
+  /**
+   * Checks if the user is the admin of the pod, and then burns a member.
+   */
+  burnMember = async (
+    memberToBurn: string,
+    signer: ethers.Signer,
+  ): Promise<ethers.providers.TransactionResponse> => {
+    checkAddress(memberToBurn);
+    try {
+      return getContract('MemberToken', signer).burn(memberToBurn, this.id);
+    } catch (err) {
+      return handleEthersError(err);
+    }
+  };
+
   /**
    * Any member of a pod can call this
    */
@@ -447,6 +404,38 @@ export default class Pod {
     }
   };
 
+  /* Transfer membership functions */
+
+  /**
+   * Transfers a membership from the signer's account to the memberToTransferTo.
+   * @param addressToTransferTo
+   * @param signer
+   * @returns
+   */
+  transferMembership = async (addressToTransferTo: string, signer: ethers.Signer) => {
+    const checkedAddress = checkAddress(addressToTransferTo);
+    if (await this.isMember(checkedAddress)) {
+      throw new Error(`Address ${checkedAddress} is already a member of this pod`);
+    }
+
+    const signerAddress = await signer.getAddress();
+    if (!(await this.isMember(signerAddress))) {
+      throw new Error(`Signer ${signerAddress} is not a member of this pod`);
+    }
+
+    try {
+      return getContract('MemberToken', signer).safeTransferFrom(
+        signerAddress,
+        checkedAddress,
+        this.id,
+        1,
+        ethers.constants.HashZero,
+      );
+    } catch (err) {
+      return handleEthersError(err);
+    }
+  };
+
   proposeTransferMembershipFromSubPod = async (
     subPodIdentifier: Pod | string | number,
     addressToTransferTo: string,
@@ -496,6 +485,29 @@ export default class Pod {
       );
     } catch (err) {
       throw new Error(err);
+    }
+  };
+
+  /* Transfer/manage admin functions */
+
+  /**
+   * Transfers admin role from signer's account to addressToTransferTo
+   * @param addressToTransferTo
+   * @param signer
+   * @returns
+   */
+  transferAdmin = async (addressToTransferTo: string, signer: ethers.Signer) => {
+    const checkedAddress = checkAddress(addressToTransferTo);
+    const signerAddress = await signer.getAddress();
+    if (!this.isAdmin(signerAddress)) throw new Error('Signer was not the admin of this pod');
+
+    const { abi: controllerAbi } = getControllerByAddress(this.controller, config.network);
+    const Controller = new ethers.Contract(this.controller, controllerAbi, signer);
+
+    try {
+      return Controller.updatePodAdmin(this.id, checkedAddress);
+    } catch (err) {
+      return handleEthersError(err);
     }
   };
 
@@ -577,6 +589,8 @@ export default class Pod {
       throw new Error(err);
     }
   };
+
+  /* Migrate functions */
 
   migratePodToLatest = async (signer: ethers.Signer) => {
     // forcing to newest controller
